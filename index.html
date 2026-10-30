@@ -304,7 +304,7 @@ dialog{margin:auto 0 0;border-radius:18px 18px 0 0}
 <label>تغطية المخزون المطلوبة (يوم)<input id="sCover" class="fi" type="number" min="1" max="365"></label>
 </div>
 <div id="sNote" class="note"></div>
-<div class="acts" style="flex-wrap:wrap"><button class="btn" type="button" id="sUp">⬆️ رفع الأصناف الحالية للشيت</button><button class="btn" type="button" id="sOpen">📦 رفع الأرصدة الحالية كرصيد افتتاحي</button><button class="btn p" type="button" id="sSave">حفظ واختبار الاتصال</button></div>
+<div class="acts" style="flex-wrap:wrap"><button class="btn" type="button" id="sUp">⬆️ رفع الأصناف الحالية للشيت</button><button class="btn" type="button" id="sHosp">🏥 تحميل أرصدة تقرير المستشفى للأصناف الفارغة فقط</button><button class="btn" type="button" id="sOpen">📦 رفع الأرصدة الحالية كرصيد افتتاحي</button><button class="btn p" type="button" id="sSave">حفظ واختبار الاتصال</button></div>
 <div class="note"><b>طريقة الربط:</b>
 <ol><li>افتح Google Sheet جديد ← الإضافات (Extensions) ← Apps Script، والصق ملف <b>Code.gs</b>.</li>
 <li>غيّر <b>TOKEN</b> ثم Deploy ← New deployment ← Web app ← Execute as: <b>Me</b> ← Who has access: <b>Anyone</b>.</li>
@@ -626,7 +626,7 @@ async function pull(){
     if(confirm('أرصدة الشيت كلها صفر، وعلى هذا الجهاز أرصدة حالية ('+db.items.filter(i=>i.b>0).length+' صنف). هل ترفعها للشيت كرصيد افتتاحي؟')){await pushOpening();return pull()}}
   if(!db.linked&&db.log.length&&!askedRep){askedRep=true;
     if(!confirm('سيتم استبدال بيانات هذا الجهاز ('+db.log.length+' حركة محلية) ببيانات الشيت. متابعة؟')){halted=true;throw new Error('أُوقفت المزامنة بقرارك')}}
-  db.items=r.items.map(fixItem);db.log=r.log;if(Array.isArray(r.tpl))db.tpl=r.tpl;db.linked=true;prep();save();
+  db.items=r.items.map(fixItem);db.log=r.log;{const d={items:db.items};if(applyCaps(d)){db.q=db.q||[];d._capq.forEach(c=>{const it=byC(c);if(it)db.q.push({k:'saveItem',d:{item:strip(it),setBalance:false,adj:null}})});again=true}}if(Array.isArray(r.tpl))db.tpl=r.tpl;db.linked=true;prep();save();
 }
 async function sync(o){
   o=o||{};
@@ -855,6 +855,17 @@ $('#sUp').onclick=async()=>{
   catch(e){$('#sNote').textContent='❌ '+e.message}
 };
 
+$('#sHosp').onclick=async()=>{
+  const m={};SEED.forEach(r=>{if(r[6]>0)m[r[0]]=r[6]});
+  const fill=db.items.filter(i=>!(i.b>0)&&m[i.c]),kept=db.items.filter(i=>i.b>0&&m[i.c]&&i.b!==m[i.c]).length;
+  if(!fill.length){$('#sNote').textContent='لا توجد أصناف فارغة لها رصيد في تقرير المستشفى.';return}
+  if(!confirm('سيتم تحميل أرصدة تقرير المستشفى لـ '+fill.length+' صنف رصيدها صفر الآن. الأصناف التي أدخلت رصيدها بنفسك ('+kept+' صنف يختلف رقمها عن التقرير) لن تتغير. متابعة؟'))return;
+  const t=new Date().toISOString(),bid='HOSP'+Date.now().toString(36),ent=[];
+  fill.forEach((i,k)=>{i.b=m[i.c];if(i.b>i.pk)i.pk=i.b;const e=mkLog('open',i,i.b,0,i.b,'رصيد من تقرير المستشفى',{t});e.id=bid+'-'+k;db.log.push(e);ent.push({id:e.id,t,ty:'open',c:i.c,b:i.b,note:e.note})});
+  save();renderAll();
+  if(cfg.url)enqueue('setBalances',{entries:ent});
+  $('#sNote').textContent='✅ تم تحميل أرصدة '+fill.length+' صنف.';
+};
 $('#sOpen').onclick=async()=>{
   if(!cfg.url){$('#sNote').textContent='احفظ رابط الـ Web App أولاً.';return}
   if(!confirm('سيتم ضبط أرصدة الشيت لتساوي الأرصدة الموجودة على هذا الجهاز ('+db.items.filter(i=>i.b>0).length+' صنف) وتسجيلها كرصيد افتتاحي. استخدمها مرة واحدة عند البداية فقط. متابعة؟'))return;
